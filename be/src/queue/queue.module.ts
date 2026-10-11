@@ -1,10 +1,9 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { MESSAGE_BUFFER_QUEUE } from './message-buffer.types';
+import { MessageBufferService } from './message-buffer.service';
 import { RedisModule } from './redis.module';
-
-/** Queue names used by the debounce / AI pipeline (workers come later). */
-export const MESSAGE_BUFFER_QUEUE = 'message-buffer';
 
 @Module({
   imports: [
@@ -23,6 +22,7 @@ export const MESSAGE_BUFFER_QUEUE = 'message-buffer';
       name: MESSAGE_BUFFER_QUEUE,
     }),
   ],
-  exports: [BullModule, RedisModule],
+  providers: [MessageBufferService],
+  exports: [BullModule, RedisModule, MessageBufferService],
 })
 export class QueueModule {}

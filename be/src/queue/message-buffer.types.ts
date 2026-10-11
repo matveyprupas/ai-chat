@@ -1,5 +1,6 @@
 export const DEBOUNCE_MS = 3000;
 export const BUFFER_TTL_SEC = 60;
+export const MESSAGE_BUFFER_QUEUE = 'message-buffer';
 
 export type BufferedMessage =
   | { type: 'text'; text: string; messageId: number; at: number }
