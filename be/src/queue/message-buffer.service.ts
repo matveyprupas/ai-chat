@@ -30,8 +30,8 @@ export class MessageBufferService {
   }
 
   async enqueue(chatId: string, item: BufferedMessage): Promise<void> {
-    const jobId = `${this.tenantId}:${chatId}`;
-    const key = `buffer:${jobId}`;
+    const jobId = `${this.tenantId}_${chatId}`;
+    const key = `buffer:${this.tenantId}:${chatId}`;
 
     await this.redis
       .multi()
