@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { MessageBufferProcessor } from './message-buffer.processor';
 import { MESSAGE_BUFFER_QUEUE } from './message-buffer.types';
 import { MessageBufferService } from './message-buffer.service';
 import { RedisModule } from './redis.module';
@@ -22,7 +23,7 @@ import { RedisModule } from './redis.module';
       name: MESSAGE_BUFFER_QUEUE,
     }),
   ],
-  providers: [MessageBufferService],
+  providers: [MessageBufferService, MessageBufferProcessor],
   exports: [BullModule, RedisModule, MessageBufferService],
 })
 export class QueueModule {}
