@@ -1,7 +1,7 @@
 import { google } from '@ai-sdk/google';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { generateText, stepCountIs } from 'ai';
+import { APICallError, generateText, RetryError, stepCountIs } from 'ai';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import type { BufferedMessage } from '../queue/message-buffer.types';
@@ -15,8 +15,8 @@ import { OrderStateService } from './order-state.service';
 
 dayjs.extend(utc);
 
-const DEFAULT_MODEL = 'gemini-3.1-flash-lite';
 const MAX_TOOL_STEPS = 5;
+const MODEL_ENV_KEYS = ['GEMINI_MODEL_1', 'GEMINI_MODEL_2', 'GEMINI_MODEL_3'];
 
 const EMPTY_REPLY_FALLBACK =
   'Напишите ещё детали заказа, пожалуйста. / Please share a bit more order detail.';
@@ -71,7 +71,8 @@ export type OrderAgentFlushContext = {
 @Injectable()
 export class OrderAgentService {
   private readonly logger = new Logger(OrderAgentService.name);
-  private readonly modelId: string;
+  /** Older/cheaper → newer flash-lite; next only on transient provider errors. */
+  private readonly modelIds: string[];
 
   constructor(
     private readonly orderState: OrderStateService,
@@ -87,8 +88,20 @@ export class OrderAgentService {
       throw new Error('GOOGLE_GENERATIVE_AI_API_KEY is required');
     }
 
-    this.modelId =
-      this.config.get<string>('GEMINI_MODEL')?.trim() || DEFAULT_MODEL;
+    this.modelIds = MODEL_ENV_KEYS.map((key) => {
+      const id = this.config.get<string>(key)?.trim();
+      return id ? id : '';
+    }).filter(Boolean);
+
+    if (this.modelIds.length === 0) {
+      throw new Error(
+        'At least GEMINI_MODEL_1 is required (optional GEMINI_MODEL_2, GEMINI_MODEL_3 for fallback)',
+      );
+    }
+
+    this.logger.log(
+      `Gemini model cascade (older→newer flash-lite): ${this.modelIds.join(' → ')}`,
+    );
   }
 
   async processFlush(ctx: OrderAgentFlushContext): Promise<string> {
@@ -111,27 +124,72 @@ export class OrderAgentService {
       todayUtc,
       earliestDate,
     });
+    const instructions = buildSystemPrompt(todayUtc, earliestDate);
 
     this.logger.debug(
       `order agent flush chat=${ctx.chatId} todayUtc=${todayUtc} messages=${ctx.messages.length} status=${state.status}`,
     );
 
-    const result = await generateText({
-      model: google(this.modelId),
-      instructions: buildSystemPrompt(todayUtc, earliestDate),
-      prompt,
-      tools,
-      stopWhen: stepCountIs(MAX_TOOL_STEPS),
-    });
+    let lastError: unknown;
+    for (let i = 0; i < this.modelIds.length; i++) {
+      const modelId = this.modelIds[i];
+      const hasNext = i < this.modelIds.length - 1;
 
-    logAgentSteps(this.logger, ctx.chatId, result.steps);
+      try {
+        const result = await generateText({
+          model: google(modelId),
+          instructions,
+          prompt,
+          tools,
+          stopWhen: stepCountIs(MAX_TOOL_STEPS),
+        });
 
-    const reply = result.text?.trim() || EMPTY_REPLY_FALLBACK;
-    this.logger.debug(
-      `order agent reply chat=${ctx.chatId} steps=${result.steps.length} chars=${reply.length}`,
-    );
-    return reply;
+        logAgentSteps(this.logger, ctx.chatId, result.steps);
+
+        const reply = result.text?.trim() || EMPTY_REPLY_FALLBACK;
+        this.logger.debug(
+          `order agent reply chat=${ctx.chatId} model=${modelId} steps=${result.steps.length} chars=${reply.length}`,
+        );
+        return reply;
+      } catch (error) {
+        lastError = error;
+        if (hasNext && isTransientModelError(error)) {
+          this.logger.warn(
+            `model=${modelId} failed (transient); falling back to ${this.modelIds[i + 1]}: ${formatError(error)}`,
+          );
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('All Gemini models failed');
   }
+}
+
+/** Capacity / rate-limit style failures that warrant trying the next model. */
+export function isTransientModelError(error: unknown): boolean {
+  if (RetryError.isInstance(error)) {
+    return true;
+  }
+  if (APICallError.isInstance(error)) {
+    if (error.isRetryable) return true;
+    const status = error.statusCode;
+    if (status === 429 || status === 503 || status === 500) return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /high demand|unavailable|resource.?exhausted|overloaded|try again later/i.test(
+    message,
+  );
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 export type FlushClock = {
