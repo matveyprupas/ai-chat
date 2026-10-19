@@ -56,12 +56,12 @@ For photos, pass Telegram file_id values in referenceImageUrls.`,
           ctx.chatId,
           {
             customer: {
-              ...(customerName !== undefined ? { name: customerName } : {}),
-              ...(customerPhone !== undefined ? { phone: customerPhone } : {}),
+              name: customerName,
+              phone: customerPhone,
             },
             details: {
               ...detailFields,
-              ...(referenceImageUrls?.length ? { referenceImageUrls } : {}),
+              referenceImageUrls,
             },
           },
           ctx.customer,

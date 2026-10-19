@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { AiModule } from '../ai/ai.module';
 import { MessageBufferProcessor } from './message-buffer.processor';
 import { MESSAGE_BUFFER_QUEUE } from './message-buffer.types';
 import { MessageBufferService } from './message-buffer.service';
@@ -9,6 +10,7 @@ import { RedisModule } from './redis.module';
 @Module({
   imports: [
     RedisModule,
+    AiModule,
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

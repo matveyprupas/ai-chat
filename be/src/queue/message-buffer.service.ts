@@ -6,6 +6,7 @@ import Redis from 'ioredis';
 import {
   BUFFER_TTL_SEC,
   type BufferedMessage,
+  type BufferJobCustomer,
   type BufferJobData,
   DEBOUNCE_MS,
   MESSAGE_BUFFER_QUEUE,
@@ -29,7 +30,11 @@ export class MessageBufferService {
     this.tenantId = tenantId;
   }
 
-  async enqueue(chatId: string, item: BufferedMessage): Promise<void> {
+  async enqueue(
+    chatId: string,
+    item: BufferedMessage,
+    customer: BufferJobCustomer,
+  ): Promise<void> {
     const jobId = `${this.tenantId}_${chatId}`;
     const key = `buffer:${this.tenantId}:${chatId}`;
 
@@ -43,7 +48,7 @@ export class MessageBufferService {
     await this.queue.remove(jobId);
     await this.queue.add(
       'flush',
-      { tenantId: this.tenantId, chatId },
+      { tenantId: this.tenantId, chatId, customer },
       {
         jobId,
         delay: DEBOUNCE_MS,

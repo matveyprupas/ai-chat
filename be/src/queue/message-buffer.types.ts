@@ -12,4 +12,15 @@ export type BufferedMessage =
       at: number;
     };
 
-export type BufferJobData = { tenantId: string; chatId: string };
+/** Telegram customer fields carried on the flush job (not in the Redis list). */
+export type BufferJobCustomer = {
+  telegramId: string;
+  username?: string;
+  firstName?: string;
+};
+
+export type BufferJobData = {
+  tenantId: string;
+  chatId: string;
+  customer: BufferJobCustomer;
+};

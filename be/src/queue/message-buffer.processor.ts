@@ -4,8 +4,11 @@ import { Job } from 'bullmq';
 import Redis from 'ioredis';
 import { InjectBot } from 'nestjs-telegraf';
 import { Telegraf } from 'telegraf';
+import { OrderAgentService } from '../ai/order-agent.service';
+import type { OrderCustomer } from '../ai/order-state';
 import {
   type BufferedMessage,
+  type BufferJobCustomer,
   type BufferJobData,
   MESSAGE_BUFFER_QUEUE,
 } from './message-buffer.types';
@@ -18,12 +21,13 @@ export class MessageBufferProcessor extends WorkerHost {
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @InjectBot() private readonly bot: Telegraf,
+    private readonly orderAgent: OrderAgentService,
   ) {
     super();
   }
 
   async process(job: Job<BufferJobData>): Promise<void> {
-    const { tenantId, chatId } = job.data;
+    const { tenantId, chatId, customer } = job.data;
     const key = `buffer:${tenantId}:${chatId}`;
 
     try {
@@ -40,10 +44,15 @@ export class MessageBufferProcessor extends WorkerHost {
       }
 
       const messages = raw.map((entry) => JSON.parse(entry) as BufferedMessage);
-      const summary = this.buildSummary(messages);
 
       await this.bot.telegram.sendChatAction(chatId, 'typing');
-      await this.bot.telegram.sendMessage(chatId, summary);
+      const reply = await this.orderAgent.processFlush({
+        tenantId,
+        chatId,
+        messages,
+        customer: toOrderCustomer(customer),
+      });
+      await this.bot.telegram.sendMessage(chatId, reply);
     } catch (error) {
       this.logger.error(
         `Failed to flush buffer for chat=${chatId}`,
@@ -63,18 +72,12 @@ export class MessageBufferProcessor extends WorkerHost {
       throw error;
     }
   }
+}
 
-  private buildSummary(messages: BufferedMessage[]): string {
-    return messages
-      .map((message, index) => {
-        const n = index + 1;
-        if (message.type === 'text') {
-          return `${n}. ${message.text}`;
-        }
-        return message.caption
-          ? `${n}. [фото] ${message.caption}`
-          : `${n}. [фото]`;
-      })
-      .join('\n');
-  }
+function toOrderCustomer(customer: BufferJobCustomer): OrderCustomer {
+  return {
+    telegramId: customer.telegramId,
+    username: customer.username,
+    name: customer.firstName,
+  };
 }
