@@ -1,5 +1,6 @@
 import { DynamicModule, Logger, Module } from '@nestjs/common';
 import { TelegrafModule } from 'nestjs-telegraf';
+import { AiModule } from '../ai/ai.module';
 import { QueueModule } from '../queue/queue.module';
 import { TelegramUpdate } from './telegram.update';
 
@@ -27,6 +28,7 @@ export class TelegramModule {
       module: TelegramModule,
       imports: [
         QueueModule,
+        AiModule,
         TelegrafModule.forRoot({
           token,
           // omit launchOptions → default long polling (local dev)
