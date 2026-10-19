@@ -7,7 +7,7 @@ import type { OrderStateService } from './order-state.service';
 
 dayjs.extend(utc);
 
-const MIN_LEAD_DAYS = 2;
+export const MIN_LEAD_DAYS = 2;
 
 export type OrderAgentToolContext = {
   tenantId: string;
@@ -86,25 +86,27 @@ For photos, pass Telegram file_id values in referenceImageUrls.`,
     }),
 
     check_date_availability: tool({
-      description:
-        'Check whether an event date is available. Minimum lead time is 2 calendar days from today (UTC).',
+      description: `Check lead-time only (not a real calendar/booking system).
+Rejects dates before today UTC + ${MIN_LEAD_DAYS} days. ok:false means TOO SOON — never "busy" or "fully booked".`,
       inputSchema: z.object({
         date: z
           .string()
           .regex(/^\d{4}-\d{2}-\d{2}$/)
-          .describe('Candidate event date YYYY-MM-DD'),
+          .describe('Candidate event date YYYY-MM-DD (resolved year included)'),
       }),
       execute: ({ date }) => {
         const minDate = utcDatePlusDays(MIN_LEAD_DAYS);
         if (date < minDate) {
           return {
             ok: false,
-            reason: `Date ${date} is too soon. Earliest available date is ${minDate} (UTC, +${MIN_LEAD_DAYS} calendar days).`,
+            code: 'too_soon' as const,
+            reason: `Date ${date} is too soon (lead-time rule only — not booked/occupied). Earliest date is ${minDate} (UTC, +${MIN_LEAD_DAYS} calendar days).`,
           };
         }
         return {
           ok: true,
-          reason: `Date ${date} is available (meets +${MIN_LEAD_DAYS} day lead time).`,
+          code: 'ok' as const,
+          reason: `Date ${date} meets the +${MIN_LEAD_DAYS} day lead-time rule (not a real capacity check).`,
         };
       },
     }),
