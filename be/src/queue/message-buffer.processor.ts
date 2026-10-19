@@ -14,6 +14,9 @@ import {
 } from './message-buffer.types';
 import { REDIS_CLIENT } from './redis.module';
 
+/** Telegram drops chat actions after ~5s; refresh just under that. */
+const TYPING_REFRESH_MS = 4000;
+
 @Processor(MESSAGE_BUFFER_QUEUE)
 export class MessageBufferProcessor extends WorkerHost {
   private readonly logger = new Logger(MessageBufferProcessor.name);
@@ -29,6 +32,7 @@ export class MessageBufferProcessor extends WorkerHost {
   async process(job: Job<BufferJobData>): Promise<void> {
     const { tenantId, chatId, customer } = job.data;
     const key = `buffer:${tenantId}:${chatId}`;
+    let stopTyping: (() => void) | undefined;
 
     try {
       const results = await this.redis
@@ -45,13 +49,15 @@ export class MessageBufferProcessor extends WorkerHost {
 
       const messages = raw.map((entry) => JSON.parse(entry) as BufferedMessage);
 
-      await this.bot.telegram.sendChatAction(chatId, 'typing');
+      stopTyping = this.startTyping(chatId);
       const reply = await this.orderAgent.processFlush({
         tenantId,
         chatId,
         messages,
         customer: toOrderCustomer(customer),
       });
+      stopTyping();
+      stopTyping = undefined;
       await this.bot.telegram.sendMessage(chatId, reply);
     } catch (error) {
       this.logger.error(
@@ -70,7 +76,24 @@ export class MessageBufferProcessor extends WorkerHost {
         );
       }
       throw error;
+    } finally {
+      stopTyping?.();
     }
+  }
+
+  /** Sends typing immediately, then every TYPING_REFRESH_MS until stopped. */
+  private startTyping(chatId: string): () => void {
+    const send = () => {
+      void this.bot.telegram.sendChatAction(chatId, 'typing').catch((err) => {
+        this.logger.debug(
+          `typing action failed chat=${chatId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    };
+
+    send();
+    const timer = setInterval(send, TYPING_REFRESH_MS);
+    return () => clearInterval(timer);
   }
 }
 
